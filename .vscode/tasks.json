@@ -1,0 +1,10 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Executar script principal",
+			"type": "shell",
+			"command": "D:/projetos/pythonDados/.venv/Scripts/python.exe main.py"
+		}
+	]
+}
