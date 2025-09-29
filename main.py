@@ -50,6 +50,7 @@ def load_and_clean_data():
     df.drop_duplicates(subset=['title', 'type'], inplace=True)
     df['director'] = df['director'].fillna('Unknown')
     df['cast'] = df['cast'].fillna('Unknown')
+    # MODIFIED: Changed imputation from mode to 'Unknown' for better accuracy
     df['country'] = df['country'].fillna('Unknown')
     df.dropna(subset=['date_added', 'rating', 'duration'], inplace=True)
     df['date_added'] = pd.to_datetime(df['date_added'].str.strip(), errors='coerce')
@@ -249,16 +250,24 @@ if df_original is not None:
     with col6:
         st.subheader('Series Count by Number of Seasons')
         df_shows = df[df['type'] == 'TV Show'].dropna(subset=['duration_seasons'])
-        seasons_count = df_shows['duration_seasons'].value_counts().sort_index()
-        fig8 = px.bar(
-            x=seasons_count.index,
-            y=seasons_count.values,
-            title='Series Count by Seasons',
-            labels={'x': 'Number of Seasons', 'y': 'Number of Series'},
-            color_discrete_sequence=[netflix_colors['black']]
-        )
-        fig8.update_xaxes(type='category') # To treat seasons as categories
-        st.plotly_chart(fig8, use_container_width=True)
+        
+        # FIX: Added a check for empty data to prevent errors
+        if not df_shows.empty:
+            seasons_count_df = df_shows['duration_seasons'].value_counts().sort_index().reset_index()
+            seasons_count_df.columns = ['duration_seasons', 'count']
+
+            fig8 = px.bar(
+                seasons_count_df,
+                x='duration_seasons',
+                y='count',
+                title='Series Count by Seasons',
+                labels={'duration_seasons': 'Number of Seasons', 'count': 'Number of Series'},
+                color_discrete_sequence=[netflix_colors['black']]
+            )
+            fig8.update_xaxes(type='category') # To treat seasons as categories
+            st.plotly_chart(fig8, use_container_width=True)
+        else:
+            st.info("No TV Show data available for the selected filters to display season counts.")
         
     # --- Section 4: Thematic Analysis of Descriptions (Word Cloud) ---
     st.header('Thematic Analysis of Descriptions')
@@ -295,7 +304,8 @@ if df_original is not None:
         )
         
         st.header('Explore Filtered Data')
-        st.write(f"Showing the first {num_rows} records based on the applied filters.")
-        st.dataframe(df.head(num_rows))
+        st.write(f"Showing a random sample of {num_rows} records based on the applied filters.")
+        st.dataframe(df.sample(num_rows))
     else:
         st.warning("No data matches the selected filters. Please adjust your filters.")
+
