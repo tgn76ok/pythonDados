@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-Dashboard de Análise do Catálogo da Netflix com Streamlit
+Netflix Catalog Analysis Dashboard with Streamlit
 
-Este script cria uma aplicação web interativa para visualizar os insights do dataset da Netflix.
+This script creates an interactive web application to visualize insights from the Netflix dataset.
 
-Instruções de Uso:
-1. Garanta que tem o Python instalado.
-2. Instale as bibliotecas necessárias:
-   pip install streamlit pandas plotly wordcloud
-3. Faça o download do dataset 'netflix_titles.csv' e coloque-o na mesma pasta deste script.
-4. Execute a aplicação a partir do seu terminal:
-   streamlit run analise_completa_netflix.py
-5. Uma aba do navegador será aberta com o dashboard interativo.
+Usage Instructions:
+1. Ensure you have Python installed.
+2. Install the required libraries:
+   pip install streamlit pandas plotly wordcloud pygwalker
+3. Download the 'netflix_titles.csv' dataset and place it in the same folder as this script.
+4. Run the application from your terminal:
+   streamlit run netflix_analysis_dashboard.py
+5. A browser tab will open with the interactive dashboard.
 """
 
 import streamlit as st
@@ -20,51 +20,52 @@ import numpy as np
 import plotly.express as px
 from wordcloud import WordCloud, STOPWORDS
 import matplotlib.pyplot as plt
+import pygwalker as pyw
 
-# --- Secção 0: Configuração da Página e Carregamento de Dados ---
+# --- Section 0: Page Configuration and Data Loading ---
 
-# Configura o layout da página para ser mais largo
+# Configure the page layout to be wider
 st.set_page_config(layout="wide")
 
-st.title('Dashboard de Análise do Catálogo da Netflix')
+st.title('Netflix Catalog Analysis Dashboard')
 
-# Paleta de cores da marca Netflix para consistência visual
+# Netflix brand color palette for visual consistency
 netflix_colors = {
     "red": "#E50914",
     "black": "#221f1f",
     "grey": "#808080"
 }
 
-# Usar cache para carregar os dados apenas uma vez, melhorando o desempenho
+# Use cache to load data only once, improving performance
 @st.cache_data
 def load_and_clean_data():
-    """Carrega, limpa e prepara o dataset da Netflix."""
+    """Loads, cleans, and prepares the Netflix dataset."""
     try:
         df = pd.read_csv('netflix_titles.csv')
     except FileNotFoundError:
-        st.error("Erro: O ficheiro 'netflix_titles.csv' não foi encontrado. Por favor, coloque-o na mesma pasta.")
+        st.error("Error: The file 'netflix_titles.csv' was not found. Please place it in the same folder.")
         return None
 
-    # Limpeza básica
+    # Basic cleaning
     df.drop_duplicates(subset=['title', 'type'], inplace=True)
     df['director'] = df['director'].fillna('Unknown')
     df['cast'] = df['cast'].fillna('Unknown')
-    df['country'] = df['country'].fillna(df['country'].mode()[0])
+    df['country'] = df['country'].fillna('Unknown')
     df.dropna(subset=['date_added', 'rating', 'duration'], inplace=True)
     df['date_added'] = pd.to_datetime(df['date_added'].str.strip(), errors='coerce')
     df.dropna(subset=['date_added'], inplace=True)
     df['year_added'] = df['date_added'].dt.year
 
-    # Limpezas avançadas
+    # Advanced cleaning
     df = df[df['year_added'] >= df['release_year']].copy()
     
-    def agrupar_rating(rating):
-        if rating in ['TV-MA', 'R', 'NC-17', 'UR']: return 'Adulto'
-        elif rating in ['TV-14', 'PG-13']: return 'Adolescente'
-        else: return 'Família/Crianças'
-    df['rating_agrupado'] = df['rating'].apply(agrupar_rating)
+    def group_rating(rating):
+        if rating in ['TV-MA', 'R', 'NC-17', 'UR']: return 'Adult'
+        elif rating in ['TV-14', 'PG-13']: return 'Teen'
+        else: return 'Family/Kids'
+    df['rating_group'] = df['rating'].apply(group_rating)
 
-    # Engenharia de Funcionalidades
+    # Feature Engineering
     df['month_added'] = df['date_added'].dt.month
     df['content_lag_years'] = df['year_added'] - df['release_year']
     
@@ -76,181 +77,199 @@ def load_and_clean_data():
     
     return df
 
-# Carrega os dados
+# Load the data
 df_original = load_and_clean_data()
 
 if df_original is not None:
-    # --- Secção 1: Barra Lateral com Filtros ---
-    st.sidebar.header('Filtros do Dashboard')
+    # --- Section 1: Sidebar with Filters ---
+    st.sidebar.header('Dashboard Filters')
 
-    # Filtro para tipo de conteúdo
-    tipo_selecionado = st.sidebar.multiselect(
-        'Selecione o Tipo de Conteúdo:',
+    # Filter for content type
+    selected_type = st.sidebar.multiselect(
+        'Select Content Type:',
         options=df_original['type'].unique(),
         default=df_original['type'].unique()
     )
     
-    # Filtro para classificação agrupada
-    rating_selecionado = st.sidebar.multiselect(
-        'Selecione a Classificação:',
-        options=df_original['rating_agrupado'].unique(),
-        default=df_original['rating_agrupado'].unique()
+    # Filter for rating group
+    selected_rating = st.sidebar.multiselect(
+        'Select Rating:',
+        options=df_original['rating_group'].unique(),
+        default=df_original['rating_group'].unique()
     )
 
-    # Filtro para país
-    paises_unicos = sorted(list(set(', '.join(df_original['country'].dropna()).split(', '))))
-    pais_selecionado = st.sidebar.multiselect(
-        'Selecione o País de Produção:',
-        options=paises_unicos,
+    # Filter for country
+    unique_countries = sorted(list(set(', '.join(df_original['country'].dropna()).split(', '))))
+    selected_country = st.sidebar.multiselect(
+        'Select Production Country:',
+        options=unique_countries,
         default=['United States']
     )
     
-    # Filtro para género (para a nuvem de palavras)
-    generos_unicos = sorted(list(set(', '.join(df_original['listed_in'].dropna()).split(', '))))
-    genero_selecionado = st.sidebar.selectbox(
-        'Selecione um Género para a Nuvem de Palavras:',
-        options=['Todos'] + generos_unicos,
+    # Filter for genre (for the word cloud)
+    unique_genres = sorted(list(set(', '.join(df_original['listed_in'].dropna()).split(', '))))
+    selected_genre = st.sidebar.selectbox(
+        'Select a Genre for the Word Cloud:',
+        options=['All'] + unique_genres,
         index=0
     )
 
-    # Filtro para ano de lançamento
-    min_ano, max_ano = int(df_original['release_year'].min()), int(df_original['release_year'].max())
-    ano_selecionado = st.sidebar.slider(
-        'Selecione o Intervalo do Ano de Lançamento:',
-        min_value=min_ano,
-        max_value=max_ano,
-        value=(min_ano, max_ano)
+    # Filter for release year
+    min_year, max_year = int(df_original['release_year'].min()), int(df_original['release_year'].max())
+    selected_year = st.sidebar.slider(
+        'Select Release Year Range:',
+        min_value=min_year,
+        max_value=max_year,
+        value=(min_year, max_year)
     )
 
-    # Aplicar filtros ao dataframe
+    # Apply filters to the dataframe
     df = df_original[
-        (df_original['type'].isin(tipo_selecionado)) &
-        (df_original['rating_agrupado'].isin(rating_selecionado)) &
-        (df_original['release_year'] >= ano_selecionado[0]) &
-        (df_original['release_year'] <= ano_selecionado[1]) &
-        (df_original['country'].str.contains('|'.join(pais_selecionado)))
+        (df_original['type'].isin(selected_type)) &
+        (df_original['rating_group'].isin(selected_rating)) &
+        (df_original['release_year'] >= selected_year[0]) &
+        (df_original['release_year'] <= selected_year[1]) &
+        (df_original['country'].str.contains('|'.join(selected_country)))
     ]
 
-    # --- Secção 2: Visualizações do Dashboard ---
+    # --- Section 2: Dashboard Visualizations ---
     
-    st.header('Visão Geral do Catálogo')
+    st.header('Catalog Overview')
+
+    # Key Metrics
+    total_titles = len(df)
+    movie_count = len(df[df['type'] == 'Movie'])
+    tv_show_count = len(df[df['type'] == 'TV Show'])
+
+    metric1, metric2, metric3 = st.columns(3)
+    with metric1:
+        st.metric(label="Total Titles", value=f"{total_titles:,}")
+    with metric2:
+        st.metric(label="Movies", value=f"{movie_count:,}")
+    with metric3:
+        st.metric(label="TV Shows", value=f"{tv_show_count:,}")
+
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader('Filmes vs. Séries de TV')
+        st.subheader('Movies vs. TV Shows')
         type_counts = df['type'].value_counts()
         fig1 = px.pie(
             values=type_counts.values, 
             names=type_counts.index, 
-            title='Distribuição de Conteúdo',
+            title='Content Distribution',
             color_discrete_map={'Movie': netflix_colors['red'], 'TV Show': netflix_colors['black']}
         )
         st.plotly_chart(fig1, use_container_width=True)
 
     with col2:
-        st.subheader('Público-Alvo Principal')
-        rating_counts = df['rating_agrupado'].value_counts()
+        st.subheader('Primary Target Audience')
+        rating_counts = df['rating_group'].value_counts()
         fig2 = px.bar(
             x=rating_counts.index, 
             y=rating_counts.values,
-            labels={'x': 'Segmento de Público', 'y': 'Quantidade de Títulos'},
-            title='Classificações Agrupadas',
+            labels={'x': 'Audience Segment', 'y': 'Number of Titles'},
+            title='Grouped Ratings',
             color_discrete_sequence=[netflix_colors['red']]
         )
         st.plotly_chart(fig2, use_container_width=True)
 
-    st.header('Evolução e Tendências')
+    st.header('Evolution and Trends')
 
-    st.subheader('Crescimento do Catálogo ao Longo dos Anos')
+    st.subheader('Catalog Growth Over the Years')
     content_by_year = df.groupby('year_added')['type'].value_counts().unstack().fillna(0).reset_index()
+    
+    # FIX: Dynamically get the columns to plot based on what's available in the filtered data
+    columns_to_plot = [col for col in content_by_year.columns if col != 'year_added']
+    
     fig3 = px.line(
         content_by_year, 
         x='year_added', 
-        y=['Movie', 'TV Show'],
-        labels={'year_added': 'Ano de Adição', 'value': 'Quantidade de Títulos', 'variable': 'Tipo de Conteúdo'},
-        title='Conteúdo Adicionado à Netflix por Ano',
+        y=columns_to_plot, # Use the dynamic list of columns here
+        labels={'year_added': 'Year Added', 'value': 'Number of Titles', 'variable': 'Content Type'},
+        title='Content Added to Netflix by Year',
         markers=True,
         color_discrete_map={'Movie': netflix_colors['red'], 'TV Show': netflix_colors['black']}
     )
     st.plotly_chart(fig3, use_container_width=True)
 
-    st.header('Análise Geográfica e de Géneros')
+    st.header('Geographic and Genre Analysis')
     
     col3, col4 = st.columns(2)
     
     with col3:
-        st.subheader('Top 10 Países Produtores')
+        st.subheader('Top 10 Producing Countries')
         countries_exploded = df[df['country'] != 'Unknown']['country'].str.split(', ').explode()
         top_10_countries = countries_exploded.value_counts().head(10)
         fig5 = px.bar(
             y=top_10_countries.index, 
             x=top_10_countries.values,
             orientation='h',
-            labels={'y': 'País', 'x': 'Quantidade de Títulos'},
-            title='Top 10 Países por Produção de Conteúdo',
+            labels={'y': 'Country', 'x': 'Number of Titles'},
+            title='Top 10 Countries by Content Production',
             color_discrete_sequence=px.colors.sequential.Reds_r
         )
         fig5.update_layout(yaxis={'categoryorder':'total ascending'})
         st.plotly_chart(fig5, use_container_width=True)
 
     with col4:
-        st.subheader('Top 10 Géneros Mais Comuns')
+        st.subheader('Top 10 Most Common Genres')
         genres_exploded = df['listed_in'].str.split(', ').explode()
         top_10_genres = genres_exploded.value_counts().head(10)
         fig6 = px.bar(
             y=top_10_genres.index, 
             x=top_10_genres.values,
             orientation='h',
-            labels={'y': 'Género', 'x': 'Quantidade de Títulos'},
-            title='Top 10 Géneros Mais Comuns',
+            labels={'y': 'Genre', 'x': 'Number of Titles'},
+            title='Top 10 Most Common Genres',
             color_discrete_sequence=px.colors.sequential.Reds_r
         )
         fig6.update_layout(yaxis={'categoryorder':'total ascending'})
         st.plotly_chart(fig6, use_container_width=True)
 
-    # --- Secção 3: Análise da Duração do Conteúdo ---
-    st.header('Análise da Duração do Conteúdo')
+    # --- Section 3: Content Duration Analysis ---
+    st.header('Content Duration Analysis')
     
     col5, col6 = st.columns(2)
     
     with col5:
-        st.subheader('Distribuição da Duração dos Filmes (Minutos)')
+        st.subheader('Movie Duration Distribution (Minutes)')
         df_movies = df[df['type'] == 'Movie'].dropna(subset=['duration_minutes'])
         fig7 = px.histogram(
             df_movies,
             x='duration_minutes',
             nbins=40,
-            title='Histograma da Duração dos Filmes',
-            labels={'duration_minutes': 'Duração (Minutos)', 'count': 'Quantidade de Filmes'},
+            title='Movie Duration Histogram',
+            labels={'duration_minutes': 'Duration (Minutes)', 'count': 'Number of Movies'},
             color_discrete_sequence=[netflix_colors['red']]
         )
         st.plotly_chart(fig7, use_container_width=True)
 
     with col6:
-        st.subheader('Contagem de Séries por Número de Temporadas')
+        st.subheader('Series Count by Number of Seasons')
         df_shows = df[df['type'] == 'TV Show'].dropna(subset=['duration_seasons'])
         seasons_count = df_shows['duration_seasons'].value_counts().sort_index()
         fig8 = px.bar(
             x=seasons_count.index,
             y=seasons_count.values,
-            title='Contagem de Séries por Temporadas',
-            labels={'x': 'Número de Temporadas', 'y': 'Quantidade de Séries'},
+            title='Series Count by Seasons',
+            labels={'x': 'Number of Seasons', 'y': 'Number of Series'},
             color_discrete_sequence=[netflix_colors['black']]
         )
-        fig8.update_xaxes(type='category') # Para tratar as temporadas como categorias
+        fig8.update_xaxes(type='category') # To treat seasons as categories
         st.plotly_chart(fig8, use_container_width=True)
         
-    # --- Secção 4: Análise Temática das Descrições (Nuvem de Palavras) ---
-    st.header('Análise Temática das Descrições')
+    # --- Section 4: Thematic Analysis of Descriptions (Word Cloud) ---
+    st.header('Thematic Analysis of Descriptions')
 
     df_wordcloud = df.copy()
-    if genero_selecionado != 'Todos':
-        df_wordcloud = df[df['listed_in'].str.contains(genero_selecionado)]
+    if selected_genre != 'All':
+        df_wordcloud = df[df['listed_in'].str.contains(selected_genre)]
     
     text = " ".join(review for review in df_wordcloud.description)
     if text:
-        st.subheader(f'Nuvem de Palavras para o Género: {genero_selecionado}')
+        st.subheader(f'Word Cloud for Genre: {selected_genre}')
         stopwords = set(STOPWORDS)
         wordcloud = WordCloud(stopwords=stopwords, background_color="white", colormap='Reds', width=800, height=400).generate(text)
         
@@ -259,25 +278,24 @@ if df_original is not None:
         ax9.axis("off")
         st.pyplot(fig9)
     else:
-        st.warning(f"Não há descrições disponíveis para o género '{genero_selecionado}' com os filtros atuais.")
+        st.warning(f"No descriptions available for the genre '{selected_genre}' with the current filters.")
 
 
-    # --- Secção 5: Visualização dos Dados Limpos ---
-    st.sidebar.header('Amostragem dos Dados')
+    # --- Section 5: Clean Data Visualization ---
+    st.sidebar.header('Data Sample')
     
-    # Slider para selecionar o número de linhas a exibir
+    # Slider to select the number of rows to display
     if not df.empty:
-        num_linhas = st.sidebar.slider(
-            'Número de linhas para exibir:',
+        num_rows = st.sidebar.slider(
+            'Number of rows to display:',
             min_value=5,
             max_value=len(df),
-            value=min(10, len(df)), # Garante que o valor não seja maior que os dados
+            value=min(10, len(df)), # Ensures the value is not greater than the data
             step=5
         )
         
-        st.header('Explorar Dados Filtrados')
-        st.write(f"A exibir uma amostra aleatória de {num_linhas} registos com base nos filtros aplicados.")
-        st.dataframe(df.sample(num_linhas))
+        st.header('Explore Filtered Data')
+        st.write(f"Showing the first {num_rows} records based on the applied filters.")
+        st.dataframe(df.head(num_rows))
     else:
-        st.warning("Nenhum dado corresponde aos filtros selecionados. Por favor, ajuste os filtros.")
-
+        st.warning("No data matches the selected filters. Please adjust your filters.")
